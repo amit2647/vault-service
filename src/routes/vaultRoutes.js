@@ -5,6 +5,7 @@ const requirePermission = require("../middleware/requirePermission");
 const requireBundle = require("../middleware/requireBundle");
 const credentials = require("../services/credentialService");
 const files = require("../services/fileService");
+const { choicesOf } = require("../services/bundleSync");
 
 const router = express.Router();
 
@@ -64,7 +65,7 @@ router.put(
     const vault = req.body?.vault;
     if (!vault || typeof vault !== "object") throw bad("vault is required");
 
-    return credentials.installVault(req.auth.organizationId, req.params.key, req.params.version, vault);
+    return credentials.installVault(req.auth.organizationId, req.params.key, req.params.version, vault, choicesOf(req));
   }),
 );
 

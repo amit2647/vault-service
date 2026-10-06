@@ -1,7 +1,7 @@
 const { conditions } = require("bundle-sdk");
 
 const pool = require("../config/database");
-const { decide } = require("./bundleSync");
+const { customized, decide, optionsFor } = require("./bundleSync");
 const keys = require("./keyService");
 
 const { httpError } = keys;
@@ -31,7 +31,7 @@ const content = (portal) => ({
 });
 
 // The vault step of a bundle install: portals, and the consent category.
-async function installVault(organizationId, bundleKey, version, vault = {}) {
+async function installVault(organizationId, bundleKey, version, vault = {}, choices = {}) {
   const portals = vault.portals || [];
 
   for (const portal of portals) {
@@ -45,12 +45,12 @@ async function installVault(organizationId, bundleKey, version, vault = {}) {
   try {
     await client.query("BEGIN");
 
-    const summary = { inserted: 0, updated: 0, unchanged: 0, kept: 0, retired: 0 };
+    const summary = { inserted: 0, updated: 0, unchanged: 0, kept: 0, retired: 0, customized: [] };
 
     for (const [position, portal] of portals.entries()) {
       const shipped = content(portal);
       const row = (await client.query("SELECT * FROM portals WHERE organization_id = $1 AND key = $2", [organizationId, portal.key])).rows[0];
-      const { action, shippedChecksum, flag } = decide(row && { content: content(row), sourceChecksum: row.source_checksum }, shipped);
+      const { action, shippedChecksum, flag, acknowledge } = decide(row && { content: content(row), sourceChecksum: row.source_checksum }, shipped, optionsFor(choices, "portal", portal.key));
 
       if (action === "insert") {
         await client.query(
@@ -65,11 +65,13 @@ async function installVault(organizationId, bundleKey, version, vault = {}) {
       if (action === "keep") {
         await client.query(
           `UPDATE portals SET bundle_key = $1, retired_at = NULL, position = $2,
-             update_available_version = CASE WHEN $3 THEN $4 ELSE update_available_version END
+             update_available_version = CASE WHEN $6 THEN NULL WHEN $3 THEN $4 ELSE update_available_version END,
+             source_checksum = CASE WHEN $6 THEN $7 ELSE source_checksum END
            WHERE id = $5`,
-          [bundleKey, position, flag, version, row.id],
+          [bundleKey, position, flag, version, row.id, Boolean(acknowledge), shippedChecksum],
         );
         summary.kept += 1;
+        if (flag) summary.customized.push(customized("portal", portal.key, row.name, content(row), shipped, version));
         continue;
       }
 
@@ -102,7 +104,8 @@ async function installVault(organizationId, bundleKey, version, vault = {}) {
       [organizationId, bundleKey, vault.consentFileCategory || null],
     );
 
-    await client.query("COMMIT");
+    // A dry run does all the work and rolls it back, to report what it would do.
+    await client.query(choices.dryRun ? "ROLLBACK" : "COMMIT");
     return summary;
   } catch (error) {
     await client.query("ROLLBACK");
