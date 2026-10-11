@@ -1,7 +1,6 @@
 const { describe, test, before, after, beforeEach, mock } = require("node:test");
 const assert = require("node:assert/strict");
 const crypto = require("crypto");
-const jwt = require("jsonwebtoken");
 
 /*
  * The vault (CD-10, CD-13, FIX-02): envelope encryption, the gates on every
@@ -9,8 +8,10 @@ const jwt = require("jsonwebtoken");
  * reveals run against a real database in the integration suite.
  */
 
-process.env.JWT_SECRET = "unit-test-secret";
-process.env.JWT_ISSUER = "unit-test-issuer";
+// Hydra's tokens, signed with a test key served as a stubbed JWKS.
+const hydra = require("./helpers/hydraToken");
+
+before(() => hydra.ready);
 process.env.BUNDLE_SERVICE_URL = "http://bundle-service.test";
 process.env.VAULT_MASTER_KEY = crypto.randomBytes(32).toString("base64");
 
@@ -153,7 +154,7 @@ after(() => {
   global.fetch = realFetch;
 });
 
-const token = (permissions) => `Bearer ${jwt.sign({ sub: 7, organizationId: 3, role: "X", permissions }, process.env.JWT_SECRET, { issuer: process.env.JWT_ISSUER })}`;
+const token = (permissions) => `Bearer ${hydra.sign({ sub: 7, organizationId: 3, role: "X", permissions })}`;
 const call = (method, path, permissions, body) =>
   realFetch(`${base}${path}`, { method, headers: { "Content-Type": "application/json", Authorization: token(permissions) }, body: body && JSON.stringify(body) });
 
@@ -219,7 +220,7 @@ describe("routes", () => {
 
     const other = await realFetch(`${base}/vault/customers/5/files`, {
       method: "POST",
-      headers: { Authorization: `Bearer ${jwt.sign({ sub: 7, organizationId: 4, role: "X", permissions: ["files.upload"] }, process.env.JWT_SECRET, { issuer: process.env.JWT_ISSUER })}` },
+      headers: { Authorization: `Bearer ${hydra.sign({ sub: 7, organizationId: 4, role: "X", permissions: ["files.upload"] })}` },
       body: new FormData(),
     });
     assert.equal(other.status, 404);
