@@ -19,7 +19,10 @@ const { clientOf, consentOf } = require("./credentialService");
  *   object, then the row.
  */
 
-const MAX_BYTES = 25 * 1024 * 1024;
+// VAULT_MAX_FILE_MB. Kong's request-size-limiting (kong/kong.yml, 26 MB) is
+// the outer cap: raising this past 25 needs that raised too. The frontend
+// reads the same value at build time (VITE_MAX_UPLOAD_MB).
+const MAX_BYTES = (Number(process.env.VAULT_MAX_FILE_MB) || 25) * 1024 * 1024;
 const BUCKET = process.env.S3_BUCKET || "client-files";
 const CATEGORY = /^[a-z][a-z0-9_]{1,59}$/;
 
